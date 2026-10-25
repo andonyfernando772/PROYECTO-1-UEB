@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -19,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,10 +33,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.scanprod.data.User
 
 @Composable
 fun LoginScreen(
-    onLogin: (String) -> Unit,
+    authenticate: (email: String, password: String) -> User?,
+    onLogin: (User) -> Unit,
+    onRegisterClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var email by remember { mutableStateOf("") }
@@ -129,10 +135,11 @@ fun LoginScreen(
                 // Simula consulta al backend
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     loading = false
-                    if (email == "admin@scanprod.com" && password == "123456") {
-                        onLogin(email)
+                    val user = authenticate(email, password)
+                    if (user != null) {
+                        onLogin(user)
                     } else {
-                        generalError = "Credenciales incorrectas (prueba admin@scanprod.com / 123456)"
+                        generalError = "Correo o contraseña incorrectos"
                     }
                 }, 1000)
             },
@@ -150,6 +157,20 @@ fun LoginScreen(
             } else {
                 Text("Ingresar")
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedButton(
+            onClick = onRegisterClick,
+            enabled = !loading,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Icon(Icons.Filled.PersonAdd, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Registrarse")
         }
     }
 }

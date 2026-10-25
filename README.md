@@ -1,2 +1,3 @@
 # PROYECTO-1-UEB
-- Ariel Calderon
+- Jonathan Ayme
+- Andony Cortez

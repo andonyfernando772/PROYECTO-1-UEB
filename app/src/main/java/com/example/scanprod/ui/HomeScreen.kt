@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Remove
@@ -39,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.scanprod.data.Role
+import com.example.scanprod.data.User
 
 data class ScannedProduct(val code: String, val name: String, val quantity: Int)
 
@@ -52,7 +55,12 @@ private val catalog = mapOf(
 )
 
 @Composable
-fun HomeScreen(email: String, onLogout: () -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    user: User,
+    onLogout: () -> Unit,
+    onOpenAdmin: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var code by remember { mutableStateOf("") }
     val products = remember { mutableStateListOf<ScannedProduct>() }
 
@@ -75,12 +83,17 @@ fun HomeScreen(email: String, onLogout: () -> Unit, modifier: Modifier = Modifie
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = "Bienvenido", style = MaterialTheme.typography.headlineSmall)
+                Text(text = "Bienvenido, ${user.name}", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    text = email,
+                    text = "${user.email} · ${user.role.label}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            if (user.role == Role.ADMIN) {
+                IconButton(onClick = onOpenAdmin) {
+                    Icon(Icons.Filled.AdminPanelSettings, contentDescription = "Administrar usuarios")
+                }
             }
             IconButton(onClick = onLogout) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Cerrar sesión")
