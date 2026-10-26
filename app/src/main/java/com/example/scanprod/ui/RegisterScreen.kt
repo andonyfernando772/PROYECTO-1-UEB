@@ -26,7 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,17 +48,17 @@ fun RegisterScreen(
     modifier: Modifier = Modifier,
     allowRoleChoice: Boolean = false
 ) {
-    var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirm by remember { mutableStateOf("") }
-    var role by remember { mutableStateOf(Role.CLIENTE) }
-    var passwordVisible by remember { mutableStateOf(false) }
-    var nameError by remember { mutableStateOf(false) }
-    var emailError by remember { mutableStateOf(false) }
-    var passwordError by remember { mutableStateOf(false) }
-    var confirmError by remember { mutableStateOf(false) }
-    var generalError by remember { mutableStateOf<String?>(null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var confirm by rememberSaveable { mutableStateOf("") }
+    var role by rememberSaveable { mutableStateOf(Role.CLIENTE) }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var nameError by rememberSaveable { mutableStateOf(false) }
+    var emailError by rememberSaveable { mutableStateOf(false) }
+    var passwordError by rememberSaveable { mutableStateOf(false) }
+    var confirmError by rememberSaveable { mutableStateOf(false) }
+    var generalError by rememberSaveable { mutableStateOf<String?>(null) }
 
     val visual = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation()
 

@@ -12,10 +12,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import com.example.scanprod.data.Product
+import com.example.scanprod.data.ProductRepository
 import com.example.scanprod.data.Role
 import com.example.scanprod.data.User
 import com.example.scanprod.data.UserRepository
@@ -23,6 +27,7 @@ import com.example.scanprod.ui.AdminScreen
 import com.example.scanprod.ui.HomeScreen
 import com.example.scanprod.ui.LoginScreen
 import com.example.scanprod.ui.RegisterScreen
+import com.example.scanprod.ui.ScannerScreen
 import com.example.scanprod.ui.theme.ScanProdTheme
 
 class MainActivity : ComponentActivity() {
@@ -37,22 +42,37 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { LOGIN, REGISTER, HOME, ADMIN, ADMIN_REGISTER }
+private enum class Screen { LOGIN, REGISTER, HOME, SCANNER, ADMIN, ADMIN_REGISTER }
+
+private val UserSaver = Saver<User?, List<String>>(
+    save = { user -> user?.let { listOf(it.name, it.email, it.role.name) } },
+    restore = { User(it[0], it[1], Role.valueOf(it[2])) }
+)
 
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
     val repository = remember { UserRepository(context.applicationContext) }
-    var user by remember { mutableStateOf<User?>(null) }
-    var screen by remember { mutableStateOf(Screen.LOGIN) }
+    // rememberSaveable mantiene la sesión abierta al girar la pantalla
+    var user by rememberSaveable(stateSaver = UserSaver) { mutableStateOf<User?>(null) }
+    var screen by rememberSaveable { mutableStateOf(Screen.LOGIN) }
     var users by remember { mutableStateOf(repository.users()) }
+    val productRepository = remember { ProductRepository(context.applicationContext) }
+    var products by remember { mutableStateOf(productRepository.products()) }
 
     // Ejecuta una acción del repositorio y refresca la lista si tuvo éxito
     fun applyChange(action: () -> String?): String? =
         action().also { if (it == null) users = repository.users() }
 
+    // Guarda un producto y refresca el catálogo si tuvo éxito
+    fun saveProduct(originalCode: String?, product: Product): String? =
+        productRepository.save(originalCode, product).also {
+            if (it == null) products = productRepository.products()
+        }
+
     BackHandler(enabled = screen == Screen.REGISTER) { screen = Screen.LOGIN }
     BackHandler(enabled = screen == Screen.ADMIN) { screen = Screen.HOME }
+    BackHandler(enabled = screen == Screen.SCANNER) { screen = Screen.HOME }
     BackHandler(enabled = screen == Screen.ADMIN_REGISTER) { screen = Screen.ADMIN }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -105,8 +125,22 @@ fun AppRoot() {
                 modifier = padded
             )
 
+            screen == Screen.SCANNER -> ScannerScreen(
+                products = products,
+                onSave = ::saveProduct,
+                onBack = { screen = Screen.HOME },
+                modifier = padded
+            )
+
             else -> HomeScreen(
                 user = current,
+                products = products,
+                onSave = ::saveProduct,
+                onDelete = { code ->
+                    productRepository.delete(code)
+                    products = productRepository.products()
+                },
+                onOpenScanner = { screen = Screen.SCANNER },
                 onLogout = {
                     user = null
                     screen = Screen.LOGIN
