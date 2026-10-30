@@ -1,52 +1,53 @@
 package com.example.scanprod.ui
 
-import android.graphics.Color
 import android.location.Location
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import java.io.File
-import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.CopyrightOverlay
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Polygon
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 
-// Mapa de CARTO con datos de OpenStreetMap. Los servidores de OpenStreetMap
-// bloquean (error 403) a las apps de prueba, así que se usa este servidor gratuito.
-private val CARTO_VOYAGER = XYTileSource(
-    "CartoVoyager", 0, 20, 256, ".png",
-    arrayOf("a", "b", "c", "d").map { "https://$it.basemaps.cartocdn.com/rastertiles/voyager/" }.toTypedArray(),
-    "© OpenStreetMap contributors © CARTO"
-)
-
-// Zoom con el que se muestra la posición al centrar el mapa
-private const val STREET_ZOOM = 17.0
-// Radio en metros del punto que marca un lugar tocado en el mapa
-private const val SELECTED_RADIUS_METERS = 6.0
+// Estilo gratuito de OpenFreeMap (el mismo de GeoKotlin): no necesita clave de API
+private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+private const val STREET_ZOOM = 16.0
+private const val CURRENT_SOURCE = "current-source"
+private const val SELECTED_SOURCE = "selected-source"
 
 /**
- * Mapa de OpenStreetMap (no necesita clave de API) con un punto azul en la
- * posición actual, un círculo con la precisión y un punto rojo en el lugar que el
- * usuario toca. Cada vez que cambia [centerRequest] el mapa vuelve a centrarse.
+ * Mapa de MapLibre con un punto azul en la posición actual y un punto rojo en el
+ * lugar que el usuario toca. Cada vez que cambia [centerRequest] el mapa vuelve a
+ * centrarse en la posición actual.
  */
 @Composable
 fun LiveMap(
     location: Location,
-    selected: GeoPoint?,
+    selected: LatLng?,
     centerRequest: Int,
-    onMapClick: (GeoPoint) -> Unit,
+    onMapClick: (LatLng) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -54,80 +55,89 @@ fun LiveMap(
     val currentOnMapClick by rememberUpdatedState(onMapClick)
 
     val mapView = remember {
-        Configuration.getInstance().apply {
-            userAgentValue = "ScanProd/1.0 (Android)"
-            osmdroidBasePath = File(context.filesDir, "osmdroid")
-            osmdroidTileCache = File(context.cacheDir, "osmdroid")
-        }
-        MapView(context).apply {
-            setTileSource(CARTO_VOYAGER)
-            isTilesScaledToDpi = true
-            setMultiTouchControls(true)
-            controller.setZoom(STREET_ZOOM)
-            overlays.add(CopyrightOverlay(context))
-        }
+        MapLibre.getInstance(context)
+        MapView(context).apply { onCreate(null) }
     }
-    val accuracyCircle = remember { circle(mapView, 0x302196F3, 0x802196F3.toInt(), 2f) }
-    val currentDot = remember { circle(mapView, 0xFF1E88E5.toInt(), Color.WHITE, 6f) }
-    val selectedDot = remember { circle(mapView, 0xFFE53935.toInt(), Color.WHITE, 6f) }
-    // Recuerda qué petición de centrado ya se atendió
-    val centered = remember { intArrayOf(-1) }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var style by remember { mutableStateOf<Style?>(null) }
 
     // El mapa sigue el ciclo de vida de la pantalla para no gastar recursos en segundo plano
     DisposableEffect(lifecycleOwner) {
-        val taps = MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(point: GeoPoint): Boolean {
-                currentOnMapClick(point)
-                return true
-            }
-
-            override fun longPressHelper(point: GeoPoint): Boolean = false
-        })
-        mapView.overlays.addAll(listOf(taps, accuracyCircle, currentDot, selectedDot))
+        var disposed = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+
+        mapView.getMapAsync { mapLibreMap ->
+            if (disposed) return@getMapAsync
+            mapLibreMap.uiSettings.isCompassEnabled = true
+            mapLibreMap.addOnMapClickListener { point ->
+                currentOnMapClick(point)
+                true
+            }
+            mapLibreMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { loaded ->
+                if (disposed) return@setStyle
+                installPointLayers(loaded)
+                map = mapLibreMap
+                style = loaded
+            }
+        }
+
         onDispose {
+            disposed = true
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onDetach()
+            val state = lifecycleOwner.lifecycle.currentState
+            if (state.isAtLeast(Lifecycle.State.RESUMED)) mapView.onPause()
+            if (state.isAtLeast(Lifecycle.State.STARTED)) mapView.onStop()
+            mapView.onDestroy()
         }
     }
 
-    AndroidView(
-        factory = { mapView },
-        modifier = modifier,
-        update = { map ->
-            val point = GeoPoint(location.latitude, location.longitude)
-            accuracyCircle.points = Polygon.pointsAsCircle(point, location.accuracy.toDouble())
-            // El punto azul mantiene el mismo tamaño en pantalla a cualquier zoom
-            currentDot.points = Polygon.pointsAsCircle(point, metersPerDot(map, point))
-            selectedDot.isVisible = selected != null
-            selected?.let { selectedDot.points = Polygon.pointsAsCircle(it, SELECTED_RADIUS_METERS) }
-            if (centered[0] != centerRequest) {
-                centered[0] = centerRequest
-                map.controller.animateTo(point, STREET_ZOOM, 600L)
-            }
-            map.invalidate()
-        }
-    )
+    LaunchedEffect(style, location) {
+        style?.getSourceAs<GeoJsonSource>(CURRENT_SOURCE)
+            ?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude)))
+    }
+
+    LaunchedEffect(style, selected) {
+        val source = style?.getSourceAs<GeoJsonSource>(SELECTED_SOURCE) ?: return@LaunchedEffect
+        if (selected == null) source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        else source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(selected.longitude, selected.latitude)))
+    }
+
+    // Centra al cargar el mapa y cada vez que se pide
+    LaunchedEffect(map, centerRequest) {
+        map?.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), STREET_ZOOM)
+        )
+    }
+
+    AndroidView(factory = { mapView }, modifier = modifier)
 }
 
-private fun circle(mapView: MapView, fill: Int, stroke: Int, strokeWidth: Float) =
-    Polygon(mapView).apply {
-        fillPaint.color = fill
-        outlinePaint.color = stroke
-        outlinePaint.strokeWidth = strokeWidth
-        setOnClickListener { _, _, _ -> false }
-    }
-
-// Equivale a unos 8 píxeles de pantalla en el zoom actual
-private fun metersPerDot(map: MapView, point: GeoPoint): Double {
-    val metersPerPixel = 156543.03392 * Math.cos(Math.toRadians(point.latitude)) /
-        Math.pow(2.0, map.zoomLevelDouble)
-    return metersPerPixel * 8 * map.resources.displayMetrics.density
+private fun installPointLayers(style: Style) {
+    style.addSource(GeoJsonSource(CURRENT_SOURCE))
+    style.addSource(GeoJsonSource(SELECTED_SOURCE))
+    style.addLayer(
+        CircleLayer("current-points", CURRENT_SOURCE).withProperties(
+            circleRadius(9f),
+            circleColor("#1E88E5"),
+            circleStrokeColor("#FFFFFF"),
+            circleStrokeWidth(3f)
+        )
+    )
+    style.addLayer(
+        CircleLayer("selected-points", SELECTED_SOURCE).withProperties(
+            circleRadius(8f),
+            circleColor("#E53935"),
+            circleStrokeColor("#FFFFFF"),
+            circleStrokeWidth(3f)
+        )
+    )
 }

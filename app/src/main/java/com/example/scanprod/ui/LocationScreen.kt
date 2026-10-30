@@ -74,7 +74,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.osmdroid.util.GeoPoint
+import org.maplibre.android.geometry.LatLng
 
 // Cada cuánto se pide una nueva posición al GPS
 private const val UPDATE_INTERVAL_MS = 2_000L
@@ -148,7 +148,7 @@ fun LocationScreen(
     // Cada incremento vuelve a centrar el mapa en la posición actual
     var centerRequest by remember { mutableStateOf(0) }
     // Punto que el usuario tocó en el mapa y su dirección
-    var selected by remember { mutableStateOf<GeoPoint?>(null) }
+    var selected by remember { mutableStateOf<LatLng?>(null) }
     var selectedAddress by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -392,7 +392,7 @@ private fun hasPrecisePermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 
-private fun distanceTo(location: Location, point: GeoPoint): Float {
+private fun distanceTo(location: Location, point: LatLng): Float {
     val result = FloatArray(1)
     Location.distanceBetween(location.latitude, location.longitude, point.latitude, point.longitude, result)
     return result[0]
