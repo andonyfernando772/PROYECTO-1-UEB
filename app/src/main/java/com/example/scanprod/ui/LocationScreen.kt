@@ -25,21 +25,29 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -53,11 +61,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.scanprod.data.Store
+import com.example.scanprod.data.kindLabel
+import com.example.scanprod.data.nearbyStores
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -87,8 +99,13 @@ private val LOCATION_PERMISSIONS =
 
 private enum class LocationTab(val label: String, val icon: ImageVector) {
     MAPA("Mapa", Icons.Filled.Map),
+    TIENDAS("Tiendas", Icons.Filled.Store),
     DATOS("Datos", Icons.Filled.Info)
 }
+
+// Distancias entre las que se puede elegir para buscar tiendas
+private val STORE_RADII = listOf(500, 1_000, 2_000)
+private val STORE_GREEN = Color(0xFF2E7D32)
 
 // Estado del interruptor de ubicación (GPS) del teléfono
 private enum class GpsState { CHECKING, ON, OFF }
@@ -145,11 +162,26 @@ fun LocationScreen(
     var addressFor by remember { mutableStateOf<Location?>(null) }
     var updates by remember { mutableStateOf(0) }
     var tab by rememberSaveable { mutableStateOf(LocationTab.MAPA) }
-    // Cada incremento vuelve a centrar el mapa en la posición actual
+    // Cada incremento vuelve a centrar el mapa en focus, o en la posición actual si es null
     var centerRequest by remember { mutableStateOf(0) }
-    // Punto que el usuario tocó en el mapa y su dirección
+    var focus by remember { mutableStateOf<LatLng?>(null) }
+    // Punto que el usuario tocó en el mapa (o tienda elegida) y su dirección
     var selected by remember { mutableStateOf<LatLng?>(null) }
+    var selectedStore by remember { mutableStateOf<Store?>(null) }
     var selectedAddress by remember { mutableStateOf<String?>(null) }
+
+    // Tiendas de OpenStreetMap alrededor del usuario
+    var stores by remember { mutableStateOf<List<Store>>(emptyList()) }
+    var storesLoading by remember { mutableStateOf(false) }
+    var storesError by remember { mutableStateOf(false) }
+    var storesRadius by rememberSaveable { mutableStateOf(1_000) }
+    // Cada incremento vuelve a buscar las tiendas desde la posición actual
+    var storesRequest by remember { mutableStateOf(0) }
+
+    fun showStore(store: Store) {
+        selectedStore = store
+        selected = LatLng(store.latitude, store.longitude)
+    }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(LOCATION_PERMISSIONS)
@@ -183,6 +215,17 @@ fun LocationScreen(
             addressFor = current
             findAddress(context, current.latitude, current.longitude)?.let { address = it }
         }
+    }
+
+    // Busca las tiendas en cuanto hay posición y cada vez que se pide o cambia la distancia
+    val hasLocation = location != null
+    LaunchedEffect(hasLocation, storesRequest, storesRadius) {
+        val current = location ?: return@LaunchedEffect
+        storesLoading = true
+        val found = nearbyStores(current.latitude, current.longitude, storesRadius)
+        storesLoading = false
+        storesError = found == null
+        if (found != null) stores = found.sortedBy { distanceTo(current, LatLng(it.latitude, it.longitude)) }
     }
 
     LaunchedEffect(selected) {
@@ -250,12 +293,45 @@ fun LocationScreen(
             tab == LocationTab.MAPA -> Box(modifier = Modifier.weight(1f)) {
                 LiveMap(
                     location = current,
+                    stores = stores,
                     selected = selected,
+                    focus = focus,
                     centerRequest = centerRequest,
-                    onMapClick = { selected = it },
+                    onMapClick = {
+                        selectedStore = null
+                        selected = it
+                    },
+                    onStoreClick = ::showStore,
                     modifier = Modifier.fillMaxSize()
                 )
+                Card(
+                    onClick = { tab = LocationTab.TIENDAS },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        if (storesLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.Store, contentDescription = null, tint = STORE_GREEN)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = when {
+                                storesLoading -> "Buscando tiendas…"
+                                storesError -> "Sin conexión para tiendas"
+                                else -> "${stores.size} tiendas a ${radiusLabel(storesRadius)}"
+                            },
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
                 val point = selected
+                val store = selectedStore
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -269,10 +345,17 @@ fun LocationScreen(
                                 .padding(12.dp)
                         ) {
                             Text(
-                                text = if (point == null) "Estás aquí" else "Punto seleccionado",
+                                text = when {
+                                    store != null -> store.kindLabel()
+                                    point == null -> "Estás aquí"
+                                    else -> "Punto seleccionado"
+                                },
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (store != null) STORE_GREEN else MaterialTheme.colorScheme.primary
                             )
+                            if (store != null) {
+                                Text(text = store.name, style = MaterialTheme.typography.titleMedium)
+                            }
                             Text(
                                 text = if (point == null) address ?: "Buscando dirección…"
                                 else selectedAddress ?: "Buscando dirección…",
@@ -295,14 +378,20 @@ fun LocationScreen(
                             )
                         }
                         if (point != null) {
-                            IconButton(onClick = { selected = null }) {
+                            IconButton(onClick = {
+                                selected = null
+                                selectedStore = null
+                            }) {
                                 Icon(Icons.Filled.Close, contentDescription = "Quitar punto")
                             }
                         }
                     }
                 }
                 FloatingActionButton(
-                    onClick = { centerRequest++ },
+                    onClick = {
+                        focus = null
+                        centerRequest++
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 12.dp, bottom = 16.dp)
@@ -310,6 +399,23 @@ fun LocationScreen(
                     Icon(Icons.Filled.MyLocation, contentDescription = "Centrar en mi ubicación")
                 }
             }
+
+            tab == LocationTab.TIENDAS -> StoreList(
+                location = current,
+                stores = stores,
+                loading = storesLoading,
+                error = storesError,
+                radius = storesRadius,
+                onRadiusChange = { storesRadius = it },
+                onRefresh = { storesRequest++ },
+                onStoreClick = { store ->
+                    showStore(store)
+                    focus = LatLng(store.latitude, store.longitude)
+                    centerRequest++
+                    tab = LocationTab.MAPA
+                },
+                modifier = Modifier.weight(1f)
+            )
 
             else -> Column(modifier = Modifier.padding(24.dp)) {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -356,6 +462,110 @@ fun LocationScreen(
         }
     }
 }
+
+@Composable
+private fun StoreList(
+    location: Location,
+    stores: List<Store>,
+    loading: Boolean,
+    error: Boolean,
+    radius: Int,
+    onRadiusChange: (Int) -> Unit,
+    onRefresh: () -> Unit,
+    onStoreClick: (Store) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var search by rememberSaveable { mutableStateOf("") }
+    val filtered = stores.filter {
+        it.name.contains(search.trim(), ignoreCase = true) || it.kindLabel().contains(search.trim(), ignoreCase = true)
+    }
+
+    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            STORE_RADII.forEach { option ->
+                FilterChip(
+                    selected = radius == option,
+                    onClick = { onRadiusChange(option) },
+                    label = { Text(radiusLabel(option)) },
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onRefresh, enabled = !loading) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Buscar de nuevo")
+            }
+        }
+
+        OutlinedTextField(
+            value = search,
+            onValueChange = { search = it },
+            label = { Text("Buscar tienda o tipo") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "${filtered.size} tiendas a ${radiusLabel(radius)}",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when {
+            loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+
+            error -> Message(
+                text = "No se pudieron cargar las tiendas. Revisa tu conexión a internet.",
+                action = "Reintentar",
+                onAction = onRefresh
+            )
+
+            filtered.isEmpty() -> Text(
+                text = if (stores.isEmpty()) "No hay tiendas registradas en esta zona. Prueba con una distancia mayor."
+                else "Ninguna tienda coincide con la búsqueda.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(filtered, key = { it.id }) { store ->
+                    Card(onClick = { onStoreClick(store) }, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Icon(Icons.Filled.Store, contentDescription = null, tint = STORE_GREEN)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = store.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = store.kindLabel(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = distanceLabel(distanceTo(location, LatLng(store.latitude, store.longitude))),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun radiusLabel(meters: Int): String =
+    if (meters >= 1_000) "${meters / 1_000} km" else "$meters m"
+
+private fun distanceLabel(meters: Float): String =
+    if (meters >= 1_000) String.format(Locale.US, "%.1f km", meters / 1_000) else String.format(Locale.US, "%.0f m", meters)
 
 @Composable
 private fun Message(text: String, action: String, onAction: () -> Unit) {
