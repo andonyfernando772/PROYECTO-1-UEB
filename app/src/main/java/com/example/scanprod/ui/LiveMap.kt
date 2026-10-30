@@ -16,11 +16,20 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Polygon
+
+// Mapa de CARTO con datos de OpenStreetMap. Los servidores de OpenStreetMap
+// bloquean (error 403) a las apps de prueba, así que se usa este servidor gratuito.
+private val CARTO_VOYAGER = XYTileSource(
+    "CartoVoyager", 0, 20, 256, ".png",
+    arrayOf("a", "b", "c", "d").map { "https://$it.basemaps.cartocdn.com/rastertiles/voyager/" }.toTypedArray(),
+    "© OpenStreetMap contributors © CARTO"
+)
 
 // Zoom con el que se muestra la posición al centrar el mapa
 private const val STREET_ZOOM = 17.0
@@ -46,14 +55,16 @@ fun LiveMap(
 
     val mapView = remember {
         Configuration.getInstance().apply {
-            userAgentValue = context.packageName
+            userAgentValue = "ScanProd/1.0 (Android)"
             osmdroidBasePath = File(context.filesDir, "osmdroid")
             osmdroidTileCache = File(context.cacheDir, "osmdroid")
         }
         MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(CARTO_VOYAGER)
+            isTilesScaledToDpi = true
             setMultiTouchControls(true)
             controller.setZoom(STREET_ZOOM)
+            overlays.add(CopyrightOverlay(context))
         }
     }
     val accuracyCircle = remember { circle(mapView, 0x302196F3, 0x802196F3.toInt(), 2f) }
