@@ -25,6 +25,7 @@ import com.example.scanprod.data.User
 import com.example.scanprod.data.UserRepository
 import com.example.scanprod.ui.AdminScreen
 import com.example.scanprod.ui.HomeScreen
+import com.example.scanprod.ui.LocationScreen
 import com.example.scanprod.ui.LoginScreen
 import com.example.scanprod.ui.RegisterScreen
 import com.example.scanprod.ui.ScannerScreen
@@ -42,7 +43,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { LOGIN, REGISTER, HOME, SCANNER, ADMIN, ADMIN_REGISTER }
+private enum class Screen { LOGIN, REGISTER, HOME, SCANNER, LOCATION, ADMIN, ADMIN_REGISTER }
 
 private val UserSaver = Saver<User?, List<String>>(
     save = { user -> user?.let { listOf(it.name, it.email, it.role.name) } },
@@ -73,6 +74,7 @@ fun AppRoot() {
     BackHandler(enabled = screen == Screen.REGISTER) { screen = Screen.LOGIN }
     BackHandler(enabled = screen == Screen.ADMIN) { screen = Screen.HOME }
     BackHandler(enabled = screen == Screen.SCANNER) { screen = Screen.HOME }
+    BackHandler(enabled = screen == Screen.LOCATION) { screen = Screen.HOME }
     BackHandler(enabled = screen == Screen.ADMIN_REGISTER) { screen = Screen.ADMIN }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -132,6 +134,11 @@ fun AppRoot() {
                 modifier = padded
             )
 
+            screen == Screen.LOCATION -> LocationScreen(
+                onBack = { screen = Screen.HOME },
+                modifier = padded
+            )
+
             else -> HomeScreen(
                 user = current,
                 products = products,
@@ -141,6 +148,7 @@ fun AppRoot() {
                     products = productRepository.products()
                 },
                 onOpenScanner = { screen = Screen.SCANNER },
+                onOpenLocation = { screen = Screen.LOCATION },
                 onLogout = {
                     user = null
                     screen = Screen.LOGIN

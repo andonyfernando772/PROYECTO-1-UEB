@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -74,6 +75,7 @@ fun HomeScreen(
     onSave: (originalCode: String?, product: Product) -> String?,
     onDelete: (code: String) -> Unit,
     onOpenScanner: () -> Unit,
+    onOpenLocation: () -> Unit,
     onLogout: () -> Unit,
     onOpenAdmin: () -> Unit,
     modifier: Modifier = Modifier
@@ -104,6 +106,9 @@ fun HomeScreen(
                 IconButton(onClick = onOpenAdmin) {
                     Icon(Icons.Filled.AdminPanelSettings, contentDescription = "Administrar usuarios")
                 }
+            }
+            IconButton(onClick = onOpenLocation) {
+                Icon(Icons.Filled.LocationOn, contentDescription = "Mi ubicación")
             }
             IconButton(onClick = onLogout) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Cerrar sesión")
