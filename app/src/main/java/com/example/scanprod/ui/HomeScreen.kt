@@ -5,40 +5,60 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,9 +70,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.scanprod.data.Product
 import com.example.scanprod.data.ProductImages
@@ -63,6 +90,12 @@ import kotlinx.coroutines.launch
 
 // Producto que se está creando (original null) o modificando
 internal data class Editing(val original: String?, val product: Product)
+
+// Colores de acento del catálogo estilo tienda en línea
+private val ShopOrange = Color(0xFFFB6A00)
+private val ShopGreen = Color(0xFF0A8A3A)
+// Por debajo de esta cantidad el stock se resalta como "últimas unidades"
+private const val LOW_STOCK = 5
 
 /**
  * Catálogo: muestra los productos de la base de datos y permite crearlos,
@@ -88,100 +121,91 @@ fun HomeScreen(
         it.name.contains(search.trim(), ignoreCase = true) || it.code.contains(search.trim())
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = "Catálogo", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    text = "${user.name} · ${user.role.label}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (user.role == Role.ADMIN) {
-                IconButton(onClick = onOpenAdmin) {
-                    Icon(Icons.Filled.AdminPanelSettings, contentDescription = "Administrar usuarios")
+    // El Scaffold de MainActivity ya aplica los márgenes del sistema
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = WindowInsets(0),
+        bottomBar = {
+            NavigationBar(windowInsets = WindowInsets(0)) {
+                ShopNavItem("Inicio", Icons.Filled.Home, selected = true) {}
+                ShopNavItem("Escanear", Icons.Filled.QrCodeScanner, onClick = onOpenScanner)
+                ShopNavItem("Ubicación", Icons.Filled.LocationOn, onClick = onOpenLocation)
+                if (user.role == Role.ADMIN) {
+                    ShopNavItem("Usuarios", Icons.Filled.AdminPanelSettings, onClick = onOpenAdmin)
                 }
+                ShopNavItem("Salir", Icons.AutoMirrored.Filled.Logout, onClick = onLogout)
             }
-            IconButton(onClick = onOpenLocation) {
-                Icon(Icons.Filled.LocationOn, contentDescription = "Mi ubicación")
-            }
-            IconButton(onClick = onLogout) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Cerrar sesión")
-            }
-            FilledIconButton(onClick = onOpenScanner) {
-                Icon(Icons.Filled.QrCodeScanner, contentDescription = "Abrir escáner")
-            }
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { editing = Editing(null, Product("", "", 0, 0.0)) },
+                containerColor = ShopOrange,
+                contentColor = Color.White,
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text("Nuevo") }
+            )
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            label = { Text("Buscar por nombre o código") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = { editing = Editing(null, Product("", "", 0, 0.0)) },
-            modifier = Modifier.fillMaxWidth()
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Nuevo producto")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Productos (${products.size})",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f)
+            SearchBar(
+                value = search,
+                onValueChange = { search = it },
+                onCameraClick = onOpenScanner,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp)
             )
-            Text(
-                text = "Unidades: ${products.sumOf { it.quantity }}",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (filtered.isEmpty()) {
-            Box(
+            // Franja de resumen, como la de beneficios de las tiendas en línea
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
+                SummaryItem("${products.size} productos")
+                Text(" | ", color = MaterialTheme.colorScheme.outline)
+                SummaryItem("${products.sumOf { it.quantity }} unidades")
+                Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = if (products.isEmpty()) "El catálogo está vacío.\nCrea un producto."
-                    else "Ningún producto coincide con la búsqueda.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = user.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(filtered, key = { it.code }) { product ->
-                    ProductRow(
-                        product = product,
-                        onEdit = { editing = Editing(product.code, product) },
-                        onDelete = { toDelete = product }
+
+            if (filtered.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (products.isEmpty()) "El catálogo está vacío.\nCrea un producto."
+                        else "Ningún producto coincide con la búsqueda.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 88.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(filtered, key = { it.code }) { product ->
+                        ProductCard(
+                            product = product,
+                            onEdit = { editing = Editing(product.code, product) },
+                            onDelete = { toDelete = product }
+                        )
+                    }
+                    item(span = { GridItemSpan(2) }) { Spacer(modifier = Modifier.height(4.dp)) }
                 }
             }
         }
@@ -212,6 +236,111 @@ fun HomeScreen(
         )
     }
 }
+
+@Composable
+private fun SearchBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onCameraClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+            .padding(start = 18.dp, end = 4.dp)
+    ) {
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty()) {
+                Text(
+                    text = "Buscar por nombre o código",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(ShopOrange),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (value.isNotEmpty()) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Borrar búsqueda",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .padding(6.dp)
+                    .size(20.dp)
+                    .clickableNoRipple { onValueChange("") }
+            )
+        }
+        Icon(
+            Icons.Filled.PhotoCamera,
+            contentDescription = "Escanear código",
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .size(24.dp)
+                .clickableNoRipple(onCameraClick)
+        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(width = 52.dp, height = 38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurface)
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.surface
+            )
+        }
+    }
+}
+
+@Composable
+private fun SummaryItem(text: String) {
+    Icon(Icons.Filled.Check, contentDescription = null, tint = ShopGreen, modifier = Modifier.size(16.dp))
+    Spacer(modifier = Modifier.width(2.dp))
+    Text(text = text, color = ShopGreen, style = MaterialTheme.typography.labelLarge)
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.ShopNavItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean = false,
+    onClick: () -> Unit
+) {
+    NavigationBarItem(
+        selected = selected,
+        onClick = onClick,
+        icon = { Icon(icon, contentDescription = null) },
+        label = { Text(label, fontSize = 11.sp) },
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = ShopOrange,
+            selectedTextColor = ShopOrange,
+            indicatorColor = Color.Transparent
+        )
+    )
+}
+
+// Clic sin la onda de Material, para íconos dentro de la barra de búsqueda
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
+    this.then(
+        Modifier.clickable(
+            interactionSource = null,
+            indication = null,
+            onClick = onClick
+        )
+    )
 
 @Composable
 internal fun ProductDialog(
@@ -327,41 +456,93 @@ internal fun ProductDialog(
     )
 }
 
+
 @Composable
-private fun ProductRow(
+private fun ProductCard(
     product: Product,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)
-        ) {
-            ProductImage(image = product.image, size = 56.dp)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = product.name, style = MaterialTheme.typography.bodyLarge)
+    Card(
+        onClick = onEdit,
+        shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        BoxWithConstraints {
+            ProductImage(image = product.image, size = maxWidth, cornerRadius = 0.dp)
+            // Botón pequeño para eliminar, sobre la esquina de la foto
+            Surface(
+                onClick = onDelete,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.45f),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(28.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Close, contentDescription = "Eliminar", modifier = Modifier.size(16.dp))
+                }
+            }
+            if (product.quantity in 1..LOW_STOCK) {
+                Text(
+                    text = "ÚLTIMAS UNIDADES",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .background(ShopOrange)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 8.dp)) {
+            Text(
+                text = product.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(2.dp))
                 Text(
                     text = product.code,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+            }
+            Text(
+                text = when {
+                    product.quantity == 0 -> "AGOTADO"
+                    product.quantity <= LOW_STOCK -> "Quedan ${product.quantity}"
+                    else -> "Stock: ${product.quantity}"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (product.quantity <= LOW_STOCK) ShopOrange else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = String.format(Locale.US, "$%.2f · Stock: %d", product.price, product.quantity),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = String.format(Locale.US, "$%.2f", product.price),
+                    color = ShopOrange,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f)
                 )
-            }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Modificar")
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Eliminar",
-                    tint = MaterialTheme.colorScheme.error
-                )
+                OutlinedIconButton(
+                    onClick = onEdit,
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Modificar", modifier = Modifier.size(16.dp))
+                }
             }
         }
     }

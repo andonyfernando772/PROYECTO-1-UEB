@@ -19,12 +19,12 @@ import coil3.compose.SubcomposeAsyncImage
 
 /** Foto del producto, o un ícono de caja si no tiene o no se pudo cargar. */
 @Composable
-fun ProductImage(image: String?, size: Dp, modifier: Modifier = Modifier) {
+fun ProductImage(image: String?, size: Dp, modifier: Modifier = Modifier, cornerRadius: Dp = size / 5) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(size / 5))
+            .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.secondaryContainer)
     ) {
         val placeholder = @Composable {
