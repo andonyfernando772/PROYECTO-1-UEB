@@ -119,6 +119,13 @@ fun AdminScreen(
                                 color = if (user.role == Role.ADMIN) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            user.savedAt?.let {
+                                Text(
+                                    text = "Guardado: ${formatDateTime(it)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         // No se permite quitarse permisos ni eliminarse a uno mismo
                         if (!isMe) {

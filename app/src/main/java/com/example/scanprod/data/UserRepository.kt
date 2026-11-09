@@ -11,7 +11,8 @@ enum class Role(val label: String) {
     CLIENTE("Cliente")
 }
 
-data class User(val name: String, val email: String, val role: Role)
+/** savedAt: fecha en milisegundos del último cambio; null en las cuentas guardadas antes de registrarla. */
+data class User(val name: String, val email: String, val role: Role, val savedAt: Long? = null)
 
 private data class StoredUser(val user: User, val salt: String, val hash: String)
 
@@ -34,6 +35,19 @@ class UserRepository(context: Context) {
         return stored.user.takeIf { hash(password, stored.salt) == stored.hash }
     }
 
+    /** Recuerda qué usuario tiene la sesión abierta (null al cerrar sesión). */
+    fun saveSession(email: String?) {
+        prefs.edit().apply {
+            if (email == null) remove(KEY_SESSION) else putString(KEY_SESSION, email)
+        }.apply()
+    }
+
+    /** Usuario con la sesión abierta la última vez, o null si no hay (o ya no existe). */
+    fun restoreSession(): User? {
+        val email = prefs.getString(KEY_SESSION, null) ?: return null
+        return load().find { it.user.email.equals(email, ignoreCase = true) }?.user
+    }
+
     /** Devuelve un mensaje de error, o null si se registró correctamente. */
     fun register(name: String, email: String, password: String, role: Role = Role.CLIENTE): String? {
         val all = load()
@@ -50,7 +64,8 @@ class UserRepository(context: Context) {
         if (role == Role.CLIENTE && isLastAdmin(all, email)) {
             return "Debe quedar al menos un administrador"
         }
-        save(all.map { if (it.user.email == email) it.copy(user = it.user.copy(role = role)) else it })
+        val now = System.currentTimeMillis()
+        save(all.map { if (it.user.email == email) it.copy(user = it.user.copy(role = role, savedAt = now)) else it })
         return null
     }
 
@@ -69,7 +84,7 @@ class UserRepository(context: Context) {
 
     private fun newStoredUser(name: String, email: String, password: String, role: Role): StoredUser {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }.toHex()
-        return StoredUser(User(name, email, role), salt, hash(password, salt))
+        return StoredUser(User(name, email, role, System.currentTimeMillis()), salt, hash(password, salt))
     }
 
     private fun hash(password: String, salt: String): String =
@@ -82,7 +97,12 @@ class UserRepository(context: Context) {
         return (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
             StoredUser(
-                User(o.getString("name"), o.getString("email"), Role.valueOf(o.getString("role"))),
+                User(
+                    o.getString("name"),
+                    o.getString("email"),
+                    Role.valueOf(o.getString("role")),
+                    if (o.has("savedAt")) o.getLong("savedAt") else null
+                ),
                 o.getString("salt"),
                 o.getString("hash")
             )
@@ -97,6 +117,7 @@ class UserRepository(context: Context) {
                     .put("name", it.user.name)
                     .put("email", it.user.email)
                     .put("role", it.user.role.name)
+                    .put("savedAt", it.user.savedAt)
                     .put("salt", it.salt)
                     .put("hash", it.hash)
             )
@@ -107,5 +128,6 @@ class UserRepository(context: Context) {
     companion object {
         const val DEFAULT_ADMIN_EMAIL = "admin@scanprod.com"
         private const val KEY_USERS = "users"
+        private const val KEY_SESSION = "session_email"
     }
 }

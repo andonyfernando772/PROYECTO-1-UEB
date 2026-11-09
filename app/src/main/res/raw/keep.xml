@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Las imágenes de ejemplo se buscan por nombre desde la base de datos: no deben eliminarse al optimizar -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/prod_*" />

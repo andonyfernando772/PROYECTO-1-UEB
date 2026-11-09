@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -46,6 +47,10 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -85,6 +90,8 @@ import com.example.scanprod.data.Product
 import com.example.scanprod.data.ProductImages
 import com.example.scanprod.data.Role
 import com.example.scanprod.data.User
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
 
@@ -109,6 +116,11 @@ fun HomeScreen(
     onDelete: (code: String) -> Unit,
     onOpenScanner: () -> Unit,
     onOpenLocation: () -> Unit,
+    onOpenAr: () -> Unit,
+    cartCount: Int,
+    onOpenCart: () -> Unit,
+    darkTheme: Boolean,
+    onToggleTheme: () -> Unit,
     onLogout: () -> Unit,
     onOpenAdmin: () -> Unit,
     modifier: Modifier = Modifier
@@ -116,9 +128,16 @@ fun HomeScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<Editing?>(null) }
     var toDelete by remember { mutableStateOf<Product?>(null) }
+    // Código del producto recién guardado, para mostrar la confirmación con sus detalles
+    var savedCode by remember { mutableStateOf<String?>(null) }
+    // Código del producto que se tocó en el catálogo, para mostrar sus detalles
+    var viewingCode by remember { mutableStateOf<String?>(null) }
 
-    val filtered = products.filter {
-        it.name.contains(search.trim(), ignoreCase = true) || it.code.contains(search.trim())
+    // Solo se vuelve a filtrar cuando cambian los productos o la búsqueda, no en cada repintado
+    val filtered = remember(products, search) {
+        products.filter {
+            it.name.contains(search.trim(), ignoreCase = true) || it.code.contains(search.trim())
+        }
     }
 
     // El Scaffold de MainActivity ya aplica los márgenes del sistema
@@ -129,6 +148,8 @@ fun HomeScreen(
             NavigationBar(windowInsets = WindowInsets(0)) {
                 ShopNavItem("Inicio", Icons.Filled.Home, selected = true) {}
                 ShopNavItem("Escanear", Icons.Filled.QrCodeScanner, onClick = onOpenScanner)
+                ShopNavItem("AR", Icons.Filled.ViewInAr, onClick = onOpenAr)
+                ShopNavItem("Carrito", Icons.Filled.ShoppingCart, badge = cartCount, onClick = onOpenCart)
                 ShopNavItem("Ubicación", Icons.Filled.LocationOn, onClick = onOpenLocation)
                 if (user.role == Role.ADMIN) {
                     ShopNavItem("Usuarios", Icons.Filled.AdminPanelSettings, onClick = onOpenAdmin)
@@ -151,12 +172,20 @@ fun HomeScreen(
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            SearchBar(
-                value = search,
-                onValueChange = { search = it },
-                onCameraClick = onOpenScanner,
+            // El botón de modo claro/oscuro va a la izquierda, al mismo nivel que la búsqueda
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp)
-            )
+            ) {
+                ThemeToggleButton(darkTheme = darkTheme, onToggle = onToggleTheme)
+                Spacer(modifier = Modifier.width(8.dp))
+                SearchBar(
+                    value = search,
+                    onValueChange = { search = it },
+                    onCameraClick = onOpenScanner,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
             // Franja de resumen, como la de beneficios de las tiendas en línea
             Row(
@@ -198,9 +227,10 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filtered, key = { it.code }) { product ->
+                    items(filtered, key = { it.code }, contentType = { "product" }) { product ->
                         ProductCard(
                             product = product,
+                            onOpen = { viewingCode = product.code },
                             onEdit = { editing = Editing(product.code, product) },
                             onDelete = { toDelete = product }
                         )
@@ -214,8 +244,68 @@ fun HomeScreen(
     editing?.let { current ->
         ProductDialog(
             editing = current,
-            onSave = { onSave(current.original, it).also { error -> if (error == null) editing = null } },
+            onSave = { product ->
+                onSave(current.original, product).also { error ->
+                    if (error == null) {
+                        editing = null
+                        savedCode = product.code
+                    }
+                }
+            },
             onDismiss = { editing = null }
+        )
+    }
+
+    products.find { it.code == savedCode }?.let { product ->
+        AlertDialog(
+            onDismissRequest = { savedCode = null },
+            title = { Text("Producto guardado") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ProductImage(image = product.image, size = 56.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(product.name, style = MaterialTheme.typography.titleMedium)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ProductFacts(product)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { savedCode = null }) { Text("Aceptar") }
+            }
+        )
+    }
+
+    products.find { it.code == viewingCode }?.let { product ->
+        AlertDialog(
+            onDismissRequest = { viewingCode = null },
+            title = { Text(product.name) },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    ProductPhoto(
+                        image = product.image,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ProductFacts(product)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewingCode = null
+                    editing = Editing(product.code, product)
+                }) { Text("Modificar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewingCode = null }) { Text("Cerrar") }
+            }
         )
     }
 
@@ -317,12 +407,21 @@ private fun androidx.compose.foundation.layout.RowScope.ShopNavItem(
     label: String,
     icon: ImageVector,
     selected: Boolean = false,
+    badge: Int = 0,
     onClick: () -> Unit
 ) {
     NavigationBarItem(
         selected = selected,
         onClick = onClick,
-        icon = { Icon(icon, contentDescription = null) },
+        icon = {
+            if (badge > 0) {
+                BadgedBox(badge = { Badge(containerColor = ShopOrange) { Text(badge.toString()) } }) {
+                    Icon(icon, contentDescription = null)
+                }
+            } else {
+                Icon(icon, contentDescription = null)
+            }
+        },
         label = { Text(label, fontSize = 11.sp) },
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = ShopOrange,
@@ -432,6 +531,7 @@ internal fun ProductDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
+                SavedDetails(initial)
                 error?.let {
                     Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -456,21 +556,60 @@ internal fun ProductDialog(
     )
 }
 
+/** Fecha y hora con el formato 06/11/2026 14:30. */
+internal fun formatDateTime(millis: Long): String =
+    SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(millis))
+
+private fun shopMoney(value: Double) = String.format(Locale.US, "$%.2f", value)
+
+// Datos del producto, tanto en la ventana de detalles como en la confirmación de guardado
+@Composable
+private fun ProductFacts(product: Product) {
+    DetailRow("Código", product.code)
+    DetailRow("Cantidad", product.quantity.toString())
+    DetailRow("Precio", shopMoney(product.price))
+    DetailRow("Valor en stock", shopMoney(product.price * product.quantity))
+    SavedDetails(product)
+}
+
+// Fechas y usuario del último guardado; los productos sin esos datos no muestran las filas
+@Composable
+private fun SavedDetails(product: Product) {
+    product.createdAt?.let { DetailRow("Creado", formatDateTime(it)) }
+    product.updatedAt?.let { DetailRow("Última modificación", formatDateTime(it)) }
+    product.savedBy?.let { DetailRow("Guardado por", it) }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+    }
+}
 
 @Composable
 private fun ProductCard(
     product: Product,
+    onOpen: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
-        onClick = onEdit,
+        onClick = onOpen,
         shape = RoundedCornerShape(6.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier.fillMaxWidth()
     ) {
-        BoxWithConstraints {
-            ProductImage(image = product.image, size = maxWidth, cornerRadius = 0.dp)
+        // Box con foto cuadrada: más liviano que BoxWithConstraints al deslizar la lista
+        Box {
+            ProductPhoto(image = product.image, modifier = Modifier.fillMaxWidth().aspectRatio(1f))
             // Botón pequeño para eliminar, sobre la esquina de la foto
             Surface(
                 onClick = onDelete,
@@ -528,9 +667,17 @@ private fun ProductCard(
                 fontWeight = FontWeight.Bold,
                 color = if (product.quantity <= LOW_STOCK) ShopOrange else MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // Siempre ocupa una línea, para que las tarjetas de una misma fila tengan igual altura
+            Text(
+                text = product.updatedAt?.let { "Guardado: ${formatDateTime(it)}" } ?: "Sin fecha de guardado",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = String.format(Locale.US, "$%.2f", product.price),
+                    text = shopMoney(product.price),
                     color = ShopOrange,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,

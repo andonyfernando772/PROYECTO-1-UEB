@@ -350,6 +350,13 @@ fun ScannerScreen(
                             color = Color.White.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.bodySmall
                         )
+                        product.updatedAt?.let {
+                            Text(
+                                text = "Guardado: ${formatDateTime(it)}",
+                                color = Color.White.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                     Text(
                         text = money(product.price),
