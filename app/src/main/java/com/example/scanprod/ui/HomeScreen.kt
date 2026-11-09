@@ -422,7 +422,8 @@ private fun androidx.compose.foundation.layout.RowScope.ShopNavItem(
                 Icon(icon, contentDescription = null)
             }
         },
-        label = { Text(label, fontSize = 11.sp) },
+        // Con 7 pestañas el espacio es justo: una sola línea para que "Ubicación" no se parta
+        label = { Text(label, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = ShopOrange,
             selectedTextColor = ShopOrange,
