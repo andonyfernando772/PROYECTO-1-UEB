@@ -2,6 +2,7 @@ package com.example.scanprod.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,9 +58,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -67,6 +65,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,12 +86,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.scanprod.data.Product
+import com.example.scanprod.data.OnlineProduct
 import com.example.scanprod.data.ProductImages
 import com.example.scanprod.data.Role
 import com.example.scanprod.data.User
+import com.example.scanprod.data.lookupOnline
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Producto que se está creando (original null) o modificando
@@ -103,6 +105,11 @@ private val ShopOrange = Color(0xFFFB6A00)
 private val ShopGreen = Color(0xFF0A8A3A)
 // Por debajo de esta cantidad el stock se resalta como "últimas unidades"
 private const val LOW_STOCK = 5
+// Espera tras el último cambio del código, para no buscar mientras se sigue escribiendo
+private const val LOOKUP_DELAY_MS = 500L
+
+// Solo los códigos de barras de producto (EAN/UPC) se consultan en internet; un QR puede contener cualquier texto
+private fun isBarcode(code: String) = code.length in 8..14 && code.all(Char::isDigit)
 
 /**
  * Catálogo: muestra los productos de la base de datos y permite crearlos,
@@ -126,6 +133,9 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     var search by rememberSaveable { mutableStateOf("") }
+    // Al inicio solo se ven las tarjetas de funciones; el catálogo se abre con la tarjeta "Inicio"
+    var showCatalog by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showCatalog) { showCatalog = false }
     var editing by remember { mutableStateOf<Editing?>(null) }
     var toDelete by remember { mutableStateOf<Product?>(null) }
     // Código del producto recién guardado, para mostrar la confirmación con sus detalles
@@ -144,27 +154,16 @@ fun HomeScreen(
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0),
-        bottomBar = {
-            NavigationBar(windowInsets = WindowInsets(0)) {
-                ShopNavItem("Inicio", Icons.Filled.Home, selected = true) {}
-                ShopNavItem("Escanear", Icons.Filled.QrCodeScanner, onClick = onOpenScanner)
-                ShopNavItem("AR", Icons.Filled.ViewInAr, onClick = onOpenAr)
-                ShopNavItem("Carrito", Icons.Filled.ShoppingCart, badge = cartCount, onClick = onOpenCart)
-                ShopNavItem("Ubicación", Icons.Filled.LocationOn, onClick = onOpenLocation)
-                if (user.role == Role.ADMIN) {
-                    ShopNavItem("Usuarios", Icons.Filled.AdminPanelSettings, onClick = onOpenAdmin)
-                }
-                ShopNavItem("Salir", Icons.AutoMirrored.Filled.Logout, onClick = onLogout)
-            }
-        },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { editing = Editing(null, Product("", "", 0, 0.0)) },
-                containerColor = ShopOrange,
-                contentColor = Color.White,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("Nuevo") }
-            )
+            if (showCatalog) {
+                ExtendedFloatingActionButton(
+                    onClick = { editing = Editing(null, Product("", "", 0, 0.0)) },
+                    containerColor = ShopOrange,
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Nuevo") }
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -178,17 +177,19 @@ fun HomeScreen(
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp)
             ) {
                 ThemeToggleButton(darkTheme = darkTheme, onToggle = onToggleTheme)
-                Spacer(modifier = Modifier.width(8.dp))
-                SearchBar(
-                    value = search,
-                    onValueChange = { search = it },
-                    onCameraClick = onOpenScanner,
-                    modifier = Modifier.weight(1f)
-                )
+                if (showCatalog) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    SearchBar(
+                        value = search,
+                        onValueChange = { search = it },
+                        onCameraClick = onOpenScanner,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
             // Franja de resumen, como la de beneficios de las tiendas en línea
-            Row(
+            if (showCatalog) Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -207,26 +208,55 @@ fun HomeScreen(
                 )
             }
 
-            if (filtered.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (products.isEmpty()) "El catálogo está vacío.\nCrea un producto."
-                        else "Ningún producto coincide con la búsqueda.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 88.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 88.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Funciones de la app en tarjetas (antes eran la barra inferior)
+                if (!showCatalog) {
+                    item(key = "fn_home") {
+                        FunctionCard("Inicio", "Catálogo", "${products.size} productos", Icons.Filled.Home, selected = true) { showCatalog = true }
+                    }
+                    item(key = "fn_scan") {
+                        FunctionCard("Escanear", "Código de barras", "Buscar un producto", Icons.Filled.QrCodeScanner, onClick = onOpenScanner)
+                    }
+                    item(key = "fn_ar") {
+                        FunctionCard("AR", "Realidad aumentada", "Ver en tu espacio", Icons.Filled.ViewInAr, onClick = onOpenAr)
+                    }
+                    item(key = "fn_cart") {
+                        FunctionCard("Carrito", "$cartCount en el carrito", "Tus compras", Icons.Filled.ShoppingCart, badge = cartCount, onClick = onOpenCart)
+                    }
+                    item(key = "fn_loc") {
+                        FunctionCard("Ubicación", "Tiendas cercanas", "Mapa y lista", Icons.Filled.LocationOn, onClick = onOpenLocation)
+                    }
+                    if (user.role == Role.ADMIN) {
+                        item(key = "fn_admin") {
+                            FunctionCard("Usuarios", "Administración", "Gestionar cuentas", Icons.Filled.AdminPanelSettings, onClick = onOpenAdmin)
+                        }
+                    }
+                    item(key = "fn_logout") {
+                        FunctionCard("Salir", "Cerrar sesión", user.name, Icons.AutoMirrored.Filled.Logout, onClick = onLogout)
+                    }
+                } else if (filtered.isEmpty()) {
+                    item(span = { GridItemSpan(2) }, key = "empty") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (products.isEmpty()) "El catálogo está vacío.\nCrea un producto."
+                                else "Ningún producto coincide con la búsqueda.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
                     items(filtered, key = { it.code }, contentType = { "product" }) { product ->
                         ProductCard(
                             product = product,
@@ -235,8 +265,8 @@ fun HomeScreen(
                             onDelete = { toDelete = product }
                         )
                     }
-                    item(span = { GridItemSpan(2) }) { Spacer(modifier = Modifier.height(4.dp)) }
                 }
+                item(span = { GridItemSpan(2) }, key = "end") { Spacer(modifier = Modifier.height(4.dp)) }
             }
         }
     }
@@ -403,33 +433,58 @@ private fun SummaryItem(text: String) {
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.ShopNavItem(
-    label: String,
+private fun FunctionCard(
+    title: String,
+    subtitle: String,
+    description: String,
     icon: ImageVector,
     selected: Boolean = false,
     badge: Int = 0,
     onClick: () -> Unit
 ) {
-    NavigationBarItem(
-        selected = selected,
+    val accent = if (selected) ShopOrange else MaterialTheme.colorScheme.onSurface
+    Card(
         onClick = onClick,
-        icon = {
-            if (badge > 0) {
-                BadgedBox(badge = { Badge(containerColor = ShopOrange) { Text(badge.toString()) } }) {
-                    Icon(icon, contentDescription = null)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                if (badge > 0) {
+                    BadgedBox(badge = { Badge(containerColor = ShopOrange) { Text(badge.toString()) } }) {
+                        Icon(icon, contentDescription = null, tint = accent)
+                    }
+                } else {
+                    Icon(icon, contentDescription = null, tint = accent)
                 }
-            } else {
-                Icon(icon, contentDescription = null)
             }
-        },
-        // Con 7 pestañas el espacio es justo: una sola línea para que "Ubicación" no se parta
-        label = { Text(label, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = ShopOrange,
-            selectedTextColor = ShopOrange,
-            indicatorColor = Color.Transparent
-        )
-    )
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(title, fontWeight = FontWeight.Bold, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                description,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 // Clic sin la onda de Material, para íconos dentro de la barra de búsqueda
@@ -457,6 +512,38 @@ internal fun ProductDialog(
     }
     var image by remember { mutableStateOf(initial.image) }
     var error by remember { mutableStateOf<String?>(null) }
+    var lookupMessage by remember { mutableStateOf<String?>(null) }
+    // Datos que puso la búsqueda en internet, para descartarlos si luego cambia el código
+    var filled by remember { mutableStateOf<OnlineProduct?>(null) }
+
+    // Al crear un producto, el nombre y la foto se toman de internet según su código de barras.
+    // Solo se rellena lo que esté vacío, para no pisar lo que ya se haya escrito.
+    if (editing.original == null) {
+        LaunchedEffect(code) {
+            lookupMessage = null
+            filled?.let {
+                if (name == it.name) name = ""
+                if (image == it.imageUrl) image = null
+            }
+            filled = null
+            if (!isBarcode(code) || (name.isNotBlank() && image != null)) return@LaunchedEffect
+            delay(LOOKUP_DELAY_MS)
+            lookupMessage = "Buscando en internet…"
+            val found = lookupOnline(code)
+            if (found == null) {
+                lookupMessage = "No se encontró en internet. Completa los datos a mano."
+            } else {
+                lookupMessage = null
+                val applied = OnlineProduct(
+                    found.name.takeIf { name.isBlank() },
+                    found.imageUrl.takeIf { image == null }
+                )
+                applied.name?.let { name = it }
+                applied.imageUrl?.let { image = it }
+                filled = applied
+            }
+        }
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -512,6 +599,13 @@ internal fun ProductDialog(
                     label = { Text("Código") },
                     singleLine = true
                 )
+                lookupMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },

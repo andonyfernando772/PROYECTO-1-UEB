@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -156,7 +155,8 @@ fun AppRoot(darkTheme: Boolean, onToggleTheme: () -> Unit) {
         !(screen == Screen.HOME && user != null)
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().imePadding(),
+        // El Scaffold ya aplica el espacio del teclado (safeDrawing); un imePadding extra lo duplicaba
+        modifier = Modifier.fillMaxSize(),
         topBar = { if (showThemeToggle) ThemeToggleBar(darkTheme, onToggleTheme) }
     ) { innerPadding ->
         val padded = Modifier.padding(innerPadding)
@@ -223,6 +223,7 @@ fun AppRoot(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             screen == Screen.AR -> ArScreen(
                 products = products,
                 cart = cart,
+                onSave = ::saveProduct,
                 onOpenCart = { screen = Screen.CART },
                 onBack = { screen = Screen.HOME },
                 modifier = padded

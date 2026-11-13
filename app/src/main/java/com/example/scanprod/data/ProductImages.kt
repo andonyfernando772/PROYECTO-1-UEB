@@ -35,32 +35,56 @@ object ProductImages {
 
 data class OnlineProduct(val name: String?, val imageUrl: String?)
 
+
+// Bases de datos abiertas: comida, cosméticos, productos generales y comida de mascotas
+private val OPEN_FACTS_HOSTS = listOf(
+    "world.openfoodfacts.org",
+    "world.openbeautyfacts.org",
+    "world.openproductsfacts.org",
+    "world.openpetfoodfacts.org"
+)
+
+private fun getJson(url: String): JSONObject? {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 5000
+        readTimeout = 5000
+        setRequestProperty("User-Agent", "ScanProd/1.0 (Android)")
+    }
+    return try {
+        if (connection.responseCode != 200) null
+        else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+    } finally {
+        connection.disconnect()
+    }
+}
+
 /**
- * Busca un código de barras en Open Food Facts (base de datos gratuita de productos).
- * Devuelve null si no hay internet o el producto no está registrado.
+ * Busca un código de barras en internet: primero en las bases Open Facts (gratuitas) y,
+ * si no está, en UPCitemdb (productos en general). Devuelve null si no hay internet
+ * o el producto no está registrado.
  */
 suspend fun lookupOnline(code: String): OnlineProduct? = withContext(Dispatchers.IO) {
-    runCatching {
-        val url = URL(
-            "https://world.openfoodfacts.org/api/v2/product/$code.json" +
-                "?fields=product_name,product_name_es,image_front_url"
-        )
-        val connection = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 5000
-            readTimeout = 5000
-            setRequestProperty("User-Agent", "ScanProd/1.0 (Android)")
-        }
-        try {
-            if (connection.responseCode != 200) return@runCatching null
-            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+    for (host in OPEN_FACTS_HOSTS) {
+        val found = runCatching {
+            val json = getJson(
+                "https://$host/api/v2/product/$code.json" +
+                    "?fields=product_name,product_name_es,brands,image_front_url"
+            ) ?: return@runCatching null
             if (json.optInt("status") != 1) return@runCatching null
             val product = json.getJSONObject("product")
             val name = product.optString("product_name_es").ifBlank { product.optString("product_name") }
-            val image = product.optString("image_front_url")
-            OnlineProduct(name.ifBlank { null }, image.ifBlank { null })
+            val brand = product.optString("brands").substringBefore(',').trim()
+            val full = if (brand.isNotBlank() && !name.contains(brand, ignoreCase = true)) "$name $brand".trim() else name
+            OnlineProduct(full.ifBlank { null }, product.optString("image_front_url").ifBlank { null })
                 .takeIf { it.name != null || it.imageUrl != null }
-        } finally {
-            connection.disconnect()
-        }
+        }.getOrNull()
+        if (found != null) return@withContext found
+    }
+    runCatching {
+        val json = getJson("https://api.upcitemdb.com/prod/trial/lookup?upc=$code") ?: return@runCatching null
+        val item = json.optJSONArray("items")?.optJSONObject(0) ?: return@runCatching null
+        val image = item.optJSONArray("images")?.optString(0).orEmpty()
+        OnlineProduct(item.optString("title").ifBlank { null }, image.ifBlank { null })
+            .takeIf { it.name != null || it.imageUrl != null }
     }.getOrNull()
 }

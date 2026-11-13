@@ -13,7 +13,7 @@ import android.database.sqlite.SQLiteOpenHelper
 data class Product(
     val code: String,
     val name: String,
-    val quantity: Int,
+    val quantity: Int,0
     val price: Double,
     val image: String? = null,
     val createdAt: Long? = null,

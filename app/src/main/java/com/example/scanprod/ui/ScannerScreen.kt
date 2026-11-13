@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -52,7 +51,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,13 +71,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.scanprod.data.Product
-import com.example.scanprod.data.lookupOnline
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.Locale
-import kotlinx.coroutines.launch
 
 private data class ScanEntry(val code: String, val count: Int)
 
@@ -122,9 +118,6 @@ fun ScannerScreen(
     var showManual by rememberSaveable { mutableStateOf(false) }
     var creating by remember { mutableStateOf<Editing?>(null) }
     var lastAdded by remember { mutableStateOf<Product?>(null) }
-    // Código que se está buscando en internet
-    var searching by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
     // Lecturas hechas mientras esta pantalla está abierta
     val session = rememberSaveable(saver = SessionSaver) { mutableStateListOf() }
     val beep = remember { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80) }
@@ -154,18 +147,13 @@ fun ScannerScreen(
 
     fun onScanned(code: String) {
         val trimmed = code.trim()
-        if (trimmed.isEmpty() || creating != null || showManual || searching != null) return
+        if (trimmed.isEmpty() || creating != null || showManual) return
         val existing = products.find { it.code == trimmed }
         if (existing != null) {
             addOne(existing)
         } else {
-            // Código nuevo: se busca en internet para rellenar nombre e imagen
-            searching = trimmed
-            scope.launch {
-                val online = lookupOnline(trimmed)
-                searching = null
-                creating = Editing(null, Product(trimmed, online?.name.orEmpty(), 1, 0.0, online?.imageUrl))
-            }
+            // Código nuevo: el formulario busca sus datos en internet
+            creating = Editing(null, Product(trimmed, "", 1, 0.0))
         }
     }
 
@@ -291,22 +279,6 @@ fun ScannerScreen(
                             }
                         )
                     }
-                }
-            }
-
-            searching?.let { code ->
-                Spacer(modifier = Modifier.size(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Buscando $code en internet…", color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
 

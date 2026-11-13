@@ -88,6 +88,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.scanprod.data.Cart
+import com.example.scanprod.data.OnlineProduct
+import com.example.scanprod.data.lookupOnline
 import com.example.scanprod.data.Product
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -123,6 +125,7 @@ private val CardGap = 10.dp
 fun ArScreen(
     products: List<Product>,
     cart: Cart,
+    onSave: (originalCode: String?, product: Product) -> String?,
     onOpenCart: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -149,9 +152,18 @@ fun ArScreen(
     var imageSize by remember { mutableStateOf(IntSize(1, 1)) }
     val frame = ArFrame(tracked.values.map { it.target }, imageSize.width, imageSize.height)
 
+    // Datos de internet de los códigos que no están en el catálogo (solo en esta pantalla)
+    val online = remember { mutableStateMapOf<String, OnlineProduct>() }
+    val searched = remember { mutableSetOf<String>() }
+
     fun onFrame(new: ArFrame) {
         imageSize = IntSize(new.imageWidth, new.imageHeight)
         val now = SystemClock.uptimeMillis()
+        new.targets.forEach { target ->
+            if (products.none { it.code == target.code } && searched.add(target.code)) {
+                scope.launch { lookupOnline(target.code)?.let { online[target.code] = it } }
+            }
+        }
         new.targets.forEach { target ->
             val old = tracked[target.code]?.target
             tracked[target.code] = TrackedTarget(old?.let { smooth(it, target) } ?: target, now)
@@ -172,6 +184,13 @@ fun ArScreen(
         cart.add(code)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         Toast.makeText(context, "Agregado al carrito", Toast.LENGTH_SHORT).show()
+    }
+
+    // Formulario para agregar al catálogo un producto escaneado que aún no está registrado
+    var creating by remember { mutableStateOf<Editing?>(null) }
+    fun addToCatalog(code: String) {
+        val found = online[code]
+        creating = Editing(null, Product(code, found?.name.orEmpty(), 1, 0.0, found?.imageUrl))
     }
 
     LaunchedEffect(Unit) {
@@ -199,7 +218,9 @@ fun ArScreen(
             }
         } else {
             ArCamera(torchOn = torchOn, zoomed = zoomed, onFrame = ::onFrame)
-            ArOverlay(frame = frame, viewSize = viewSize, products = products, onCardClick = ::addToCart)
+            ArOverlay(frame = frame, viewSize = viewSize, products = products, online = online, onCardClick = { code ->
+                if (products.any { it.code == code }) addToCart(code) else addToCatalog(code)
+            })
         }
 
         ArButton(
@@ -300,6 +321,21 @@ fun ArScreen(
                     )
                 }
             }
+        }
+
+        creating?.let { current ->
+            ProductDialog(
+                editing = current,
+                onSave = { product ->
+                    onSave(null, product).also {
+                        if (it == null) {
+                            creating = null
+                            Toast.makeText(context, "Agregado al catálogo", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDismiss = { creating = null }
+            )
         }
 
         // Destello blanco al tomar la foto
@@ -411,6 +447,7 @@ private fun ArOverlay(
     frame: ArFrame,
     viewSize: IntSize,
     products: List<Product>,
+    online: Map<String, OnlineProduct>,
     onCardClick: (code: String) -> Unit
 ) {
     if (frame.targets.isEmpty() || viewSize.width == 0 || viewSize.height == 0) return
@@ -459,16 +496,26 @@ private fun ArOverlay(
             product = product,
             code = target.code,
             accent = accent,
+            online = online[target.code],
             modifier = Modifier
                 .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                 // Tocar la tarjeta de un producto registrado lo agrega al carrito
-                .then(if (product != null) Modifier.clickable { onCardClick(target.code) } else Modifier)
+                // Si no está registrado, tocarla abre el formulario para agregarlo al catálogo
+                .then(
+                    Modifier.clickable { onCardClick(target.code) }
+                )
         )
     }
 }
 
 @Composable
-private fun ArCard(product: Product?, code: String, accent: Color, modifier: Modifier = Modifier) {
+private fun ArCard(
+    product: Product?,
+    code: String,
+    accent: Color,
+    online: OnlineProduct?,
+    modifier: Modifier = Modifier
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
@@ -480,6 +527,8 @@ private fun ArCard(product: Product?, code: String, accent: Color, modifier: Mod
     ) {
         if (product != null) {
             ProductImage(image = product.image, size = 44.dp)
+        } else if (online?.imageUrl != null) {
+            ProductImage(image = online.imageUrl, size = 44.dp)
         } else {
             Box(
                 modifier = Modifier
@@ -494,7 +543,7 @@ private fun ArCard(product: Product?, code: String, accent: Color, modifier: Mod
         Spacer(modifier = Modifier.width(8.dp))
         Column {
             Text(
-                text = product?.name ?: "No registrado",
+                text = product?.name ?: online?.name ?: "No registrado",
                 color = Color(0xFF202124),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
@@ -520,8 +569,9 @@ private fun ArCard(product: Product?, code: String, accent: Color, modifier: Mod
                 )
             } else {
                 Text(
-                    text = code,
-                    color = ArGray,
+                    text = "+ Agregar al catálogo",
+                    color = ArOrange,
+                    fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
